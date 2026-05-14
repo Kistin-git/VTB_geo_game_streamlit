@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import random
 from pathlib import Path
 
 import folium
@@ -51,17 +50,38 @@ def apply_style() -> None:
           .soft-card {
             padding: 0.95rem 1rem;
             border-radius: 18px;
-            background: rgba(255,255,255,0.78);
+            background: rgba(255,255,255,0.82);
             border: 1px solid rgba(15,39,71,0.08);
             box-shadow: 0 10px 24px rgba(15,39,71,0.05);
           }
           .status-card {
             padding: 1rem 1rem;
             border-radius: 18px;
-            background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.74));
+            background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.82));
             border: 1px solid rgba(15,39,71,0.08);
+            box-shadow: 0 12px 28px rgba(15,39,71,0.06);
           }
-          .mono { font-family: 'IBM Plex Mono', monospace; }
+          .cta-note {
+            font-size: 0.95rem;
+            color: #4b6078;
+            margin-top: -0.25rem;
+          }
+          div.stButton > button[kind="primary"] {
+            width: 100%;
+            min-height: 78px;
+            border-radius: 20px;
+            font-size: 1.22rem;
+            font-weight: 800;
+            border: none;
+            background: linear-gradient(135deg, #ff8c42 0%, #ff6a28 100%);
+            color: white;
+            box-shadow: 0 14px 30px rgba(255,140,66,0.32);
+          }
+          div.stButton > button[kind="primary"]:disabled {
+            background: linear-gradient(135deg, #d8cabd 0%, #cfc2b6 100%);
+            color: #8d837a;
+            box-shadow: none;
+          }
         </style>
         """,
         unsafe_allow_html=True,
@@ -134,13 +154,13 @@ def choose_random_sector(scenario: str, cells: pd.DataFrame, radius_km: float) -
     for idx in sampled_indices:
         anchor = candidate_pool.loc[idx]
         sector = focus_cells(anchor, frame, radius_km)
-        if len(sector) < 32:
+        if len(sector) < 34:
             sector = focus_cells(anchor, frame, radius_km + 0.9)
-        if len(sector) < 28:
+        if len(sector) < 30:
             continue
         sector = sector.copy()
         sector["objective_score"] = sector.apply(lambda row: objective_for_row(row, scenario), axis=1)
-        sector = sector.sort_values("objective_score", ascending=False).head(110).copy()
+        sector = sector.sort_values("objective_score", ascending=False).head(120).copy()
         local_best = sector.iloc[0]
         return {
             "anchor_h3": anchor["h3_index"],
@@ -167,7 +187,6 @@ def initialize_or_refresh_sector(scenario: str, radius_km: float, force_new: boo
         st.session_state["game_sector_data"] = choose_random_sector(scenario, scenario_cells, radius_km)
         st.session_state["pending_guess"] = None
         st.session_state["locked_guess"] = None
-        st.session_state["reveal_answer"] = False
         st.session_state["last_clicked_h3"] = None
 
 
@@ -195,26 +214,30 @@ def build_map(sector_cells: pd.DataFrame, local_best: pd.Series, bounds: list[li
 
     for row in sector_cells.itertuples():
         marker_color = "#90a7be"
-        radius = 4.5
+        radius = 4.8
+        fill_opacity = 0.44
+
         if st.session_state.get("pending_guess") and row.h3_index == st.session_state["pending_guess"]["h3_index"]:
             marker_color = "#ff8c42"
-            radius = 8.5
+            radius = 9.2
+            fill_opacity = 0.94
         if st.session_state.get("locked_guess") and row.h3_index == st.session_state["locked_guess"]["h3_index"]:
             marker_color = "#ff8c42"
-            radius = 9.5
+            radius = 9.8
+            fill_opacity = 0.98
 
         popup = None
         if st.session_state.get("pending_guess") and row.h3_index == st.session_state["pending_guess"]["h3_index"]:
             popup = folium.Popup(
                 """
-                <div style="min-width:190px">
-                  <div style="font-weight:700; color:#0f2747; margin-bottom:6px;">Точка выбрана</div>
-                  <button style="background:#ff8c42;color:white;border:none;border-radius:10px;padding:8px 12px;font-weight:700;width:100%;">
-                    Зафиксируйте точку справа
-                  </button>
+                <div style="min-width:220px">
+                  <div style="font-weight:700; color:#0f2747; margin-bottom:8px;">Точка выбрана</div>
+                  <div style="background:#ff8c42;color:white;border-radius:12px;padding:10px 12px;font-weight:800;text-align:center;">
+                    Зафиксировать и показать результат
+                  </div>
                 </div>
                 """,
-                max_width=250,
+                max_width=280,
                 show=True,
             )
 
@@ -225,7 +248,7 @@ def build_map(sector_cells: pd.DataFrame, local_best: pd.Series, bounds: list[li
             weight=2,
             fill=True,
             fill_color=marker_color,
-            fill_opacity=0.86 if marker_color == "#ff8c42" else 0.42,
+            fill_opacity=fill_opacity,
             tooltip=(
                 f"H3: {row.h3_index}<br>"
                 f"Objective score: {row.objective_score:.3f}<br>"
@@ -234,88 +257,115 @@ def build_map(sector_cells: pd.DataFrame, local_best: pd.Series, bounds: list[li
             popup=popup,
         ).add_to(m)
 
-    if st.session_state.get("reveal_answer"):
-        folium.CircleMarker(
-            [local_best["lat"], local_best["lon"]],
-            radius=10,
-            color="#0f2747",
-            weight=3,
-            fill=True,
-            fill_color="#0f2747",
-            fill_opacity=0.95,
-            tooltip="Ответ модели",
-        ).add_to(m)
-        if st.session_state.get("locked_guess") is not None:
-            folium.PolyLine(
-                locations=[
-                    [st.session_state["locked_guess"]["lat"], st.session_state["locked_guess"]["lon"]],
-                    [local_best["lat"], local_best["lon"]],
-                ],
-                color="#0f2747",
-                weight=2,
-                dash_array="8 8",
-            ).add_to(m)
-
     return m
 
 
-def render_status_panel(scenario: str, local_best: pd.Series) -> None:
-    with st.container(border=False):
-        st.markdown("<div class='status-card'>", unsafe_allow_html=True)
-        st.subheader("Панель игрока")
-        st.caption("Вся обратная связь собрана здесь, без дополнительного скролла.")
+def build_result_map(guessed: pd.Series, local_best: pd.Series, bounds: list[list[float]]) -> folium.Map:
+    m = folium.Map(
+        location=[local_best["lat"], local_best["lon"]],
+        zoom_start=13,
+        tiles="CartoDB Voyager",
+        control_scale=True,
+        prefer_canvas=True,
+        max_zoom=18,
+        min_zoom=11,
+    )
+    m.fit_bounds(bounds)
+    folium.Rectangle(
+        bounds=bounds,
+        color="#0f2747",
+        weight=2,
+        fill=True,
+        fill_opacity=0.04,
+        dash_array="6 6",
+    ).add_to(m)
 
-        pending = st.session_state.get("pending_guess")
-        locked = st.session_state.get("locked_guess")
+    folium.CircleMarker(
+        [guessed["lat"], guessed["lon"]],
+        radius=10,
+        color="#ff8c42",
+        weight=3,
+        fill=True,
+        fill_color="#ff8c42",
+        fill_opacity=0.98,
+        tooltip="Ваш выбор",
+    ).add_to(m)
+    folium.CircleMarker(
+        [local_best["lat"], local_best["lon"]],
+        radius=10,
+        color="#0f2747",
+        weight=3,
+        fill=True,
+        fill_color="#0f2747",
+        fill_opacity=0.98,
+        tooltip="Оптимум модели",
+    ).add_to(m)
+    folium.PolyLine(
+        locations=[[guessed["lat"], guessed["lon"]], [local_best["lat"], local_best["lon"]]],
+        color="#0f2747",
+        weight=2,
+        dash_array="8 8",
+    ).add_to(m)
+    return m
 
-        if locked is None and pending is None:
-            st.info("Кликните по одной из точек на карте слева. После этого здесь появится кнопка фиксации.")
-        elif locked is None and pending is not None:
-            st.success(f"Вы выбрали H3 `{pending['h3_index']}`. Если точка подходит, зафиксируйте ее.")
-            st.write(
-                {
-                    "candidate_cell": pending["h3_index"],
-                    "atm_type": pending["recommended_atm_type"],
-                    "profit_score": round(float(pending["profit_core_score"]), 3),
-                    "coverage_score": round(float(pending["coverage_core_score"]), 3),
-                }
-            )
+
+def render_result_panel(scenario: str, local_best: pd.Series, bounds: list[list[float]]) -> None:
+    pending = st.session_state.get("pending_guess")
+    locked = st.session_state.get("locked_guess")
+
+    st.markdown("<div class='status-card'>", unsafe_allow_html=True)
+    st.subheader("Панель игрока")
+    st.markdown("<div class='cta-note'>Выберите точку на карте и запустите сравнение одной большой кнопкой.</div>", unsafe_allow_html=True)
+
+    if pending is None and locked is None:
+        st.info("Кликните по одной из точек на карте слева.")
+    elif pending is not None and locked is None:
+        st.success(f"Вы выбрали H3 `{pending['h3_index']}`.")
+        st.write(
+            f"Кандидатная точка: `{pending['recommended_atm_type']}` | "
+            f"profit `{float(pending['profit_core_score']):.3f}` | coverage `{float(pending['coverage_core_score']):.3f}`"
+        )
+    else:
+        guessed = pd.Series(locked)
+        user_score = objective_for_row(guessed, scenario)
+        best_score = objective_for_row(local_best, scenario)
+        pct = 100.0 * user_score / best_score if best_score > 0 else 0.0
+        delta = best_score - user_score
+
+        metric_cols = st.columns(2)
+        metric_cols[0].metric("Player Score", f"{pct:.1f}/100")
+        metric_cols[1].metric("Разница с моделью", f"{delta:.3f}")
+
+        if pct >= 92:
+            st.success("Очень сильный выбор: вы почти попали в решение модели.")
+        elif pct >= 75:
+            st.warning("Хорошая догадка, но модель нашла вариант лучше.")
         else:
-            guessed = pd.Series(locked)
-            user_score = objective_for_row(guessed, scenario)
-            best_score = objective_for_row(local_best, scenario)
-            pct = 100.0 * user_score / best_score if best_score > 0 else 0.0
+            st.error("Разрыв заметный: модель использует более сильную комбинацию факторов.")
 
-            col_a, col_b = st.columns(2)
-            col_a.metric("Player Score", f"{pct:.1f}/100")
-            col_b.metric("Ваш ATM тип", guessed["recommended_atm_type"])
+        st.markdown(
+            f"""
+            **Ваш выбор:** `{guessed['h3_index']}`  
+            Тип ATM: `{guessed['recommended_atm_type']}`  
+            Profit score: `{float(guessed['profit_core_score']):.3f}`  
+            Coverage score: `{float(guessed['coverage_core_score']):.3f}`  
+            Social score: `{float(guessed['social_core_score']):.3f}`
+            """
+        )
+        st.markdown(
+            f"""
+            **Оптимум модели:** `{local_best['h3_index']}`  
+            Тип ATM: `{local_best['recommended_atm_type']}`  
+            Profit score: `{float(local_best['profit_core_score']):.3f}`  
+            Coverage score: `{float(local_best['coverage_core_score']):.3f}`  
+            Social score: `{float(local_best['social_core_score']):.3f}`
+            """
+        )
+        st.markdown("### Карта сравнения")
+        result_map = build_result_map(guessed, local_best, bounds)
+        st_folium(result_map, width=None, height=320, returned_objects=[], key="game_result_map")
 
-            st.write(
-                {
-                    "your_cell": guessed["h3_index"],
-                    "profit_score": round(float(guessed["profit_core_score"]), 3),
-                    "coverage_score": round(float(guessed["coverage_core_score"]), 3),
-                    "social_score": round(float(guessed["social_core_score"]), 3),
-                }
-            )
-
-            if st.session_state.get("reveal_answer"):
-                st.write(
-                    {
-                        "model_best_cell": local_best["h3_index"],
-                        "model_atm_type": local_best["recommended_atm_type"],
-                        "delta_objective": round(best_score - user_score, 4),
-                    }
-                )
-                if pct >= 92:
-                    st.success("Очень сильный выбор: вы почти попали в решение модели.")
-                elif pct >= 75:
-                    st.warning("Хорошая догадка, но модель нашла вариант лучше.")
-                else:
-                    st.error("Разрыв заметный: модель использует более сильную комбинацию факторов.")
-            else:
-                st.caption("Ваш score уже посчитан. Нажмите `Показать ответ модели`, чтобы открыть лучший вариант.")
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 st.set_page_config(page_title="VTB ATM Game", page_icon="🎯", layout="wide")
@@ -334,8 +384,7 @@ with st.sidebar.expander("Как играть", expanded=True):
         1. Выберите режим.
         2. Получите случайный сектор Москвы.
         3. Нажмите по точке на карте.
-        4. Зафиксируйте выбор в панели справа.
-        5. Откройте ответ модели и сравните свой выбор с локальным оптимумом внутри этого сектора.
+        4. Нажмите большую кнопку `Зафиксировать и показать результат`.
         """
     )
 with st.sidebar.expander("Как считается результат"):
@@ -343,7 +392,7 @@ with st.sidebar.expander("Как считается результат"):
         """
         - `Player Score = 100 * ваш objective / лучший objective модели`
         - Сравнение идет не по всей Москве, а по случайной локальной задаче.
-        - Поэтому каждый новый сектор — это новая мини-игра.
+        - Каждый новый сектор — это новая мини-игра.
         """
     )
 
@@ -362,12 +411,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-layout_left, layout_right = st.columns([2.8, 1.2], gap="large")
+layout_left, layout_right = st.columns([2.7, 1.25], gap="large")
 
 with layout_left:
     game_map = build_map(sector_cells, local_best, bounds)
-    result = st_folium(game_map, width=None, height=780, returned_objects=["last_clicked"])
-
+    result = st_folium(game_map, width=None, height=760, returned_objects=["last_clicked"], key="game_main_map")
     if result and result.get("last_clicked"):
         clicked = result["last_clicked"]
         pending = nearest_cell(clicked["lat"], clicked["lng"], sector_cells)
@@ -375,41 +423,31 @@ with layout_left:
         if st.session_state.get("last_clicked_h3") != pending_h3:
             st.session_state["last_clicked_h3"] = pending_h3
             st.session_state["pending_guess"] = pending.to_dict()
-            if st.session_state.get("locked_guess") is None:
-                st.rerun()
+            st.session_state["locked_guess"] = None
+            st.rerun()
 
 with layout_right:
     st.markdown(
         """
         <div class="soft-card">
           <b>Текущий раунд</b><br>
-          Сектор выбран случайно и содержит достаточное число кандидатных точек, чтобы выбор не сводился к одному очевидному ответу.
+          Сектор выбран случайно и содержит достаточно кандидатных точек, чтобы выбор не сводился к одному очевидному ответу.
         </div>
         """,
         unsafe_allow_html=True,
     )
-
-    action_1, action_2 = st.columns(2)
-    with action_1:
-        if st.button(
-            "Зафиксировать точку",
-            use_container_width=True,
-            disabled=st.session_state.get("pending_guess") is None,
-        ):
-            st.session_state["locked_guess"] = st.session_state.get("pending_guess")
-            st.session_state["reveal_answer"] = False
-            st.rerun()
-    with action_2:
-        if st.button(
-            "Показать ответ",
-            use_container_width=True,
-            disabled=st.session_state.get("locked_guess") is None,
-        ):
-            st.session_state["reveal_answer"] = True
-            st.rerun()
+    pending_exists = st.session_state.get("pending_guess") is not None
+    if st.button(
+        "Зафиксировать и показать результат",
+        type="primary",
+        use_container_width=True,
+        disabled=not pending_exists,
+    ):
+        st.session_state["locked_guess"] = st.session_state.get("pending_guess")
+        st.rerun()
 
     if st.button("Новый случайный сектор", use_container_width=True):
         initialize_or_refresh_sector(scenario, sector_radius_km, force_new=True)
         st.rerun()
 
-    render_status_panel(scenario, local_best)
+    render_result_panel(scenario, local_best, bounds)
