@@ -1,0 +1,7 @@
+pandas>=2.2
+pyarrow>=16.0
+numpy>=1.26
+streamlit>=1.45
+folium>=0.16
+streamlit-folium>=0.20
+h3>=4.2
