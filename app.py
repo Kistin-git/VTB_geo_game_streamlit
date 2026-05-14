@@ -34,7 +34,13 @@ def apply_style() -> None:
               radial-gradient(circle at bottom right, rgba(17,48,92,0.14), transparent 25%),
               linear-gradient(180deg, #fcfaf7 0%, #efe7db 100%);
           }
-          html, body, [class*="css"]  { font-family: 'Space Grotesk', sans-serif; }
+          html, body, [class*="css"]  {
+            font-family: 'Space Grotesk', sans-serif;
+            color: #10253f;
+          }
+          p, div, span, label, li, .stMarkdown, .stCaption {
+            color: #10253f;
+          }
           .hero {
             padding: 1.1rem 1.3rem;
             border-radius: 20px;
@@ -42,8 +48,9 @@ def apply_style() -> None:
             color: #fff6eb;
             box-shadow: 0 14px 34px rgba(15,39,71,0.16);
           }
+          .hero, .hero * { color: #fff6eb !important; }
           .hero h1 { margin: 0; font-size: 2rem; }
-          .hero p { margin: 0.4rem 0 0 0; color: #d7e2ef; }
+          .hero p { margin: 0.4rem 0 0 0; color: #d7e2ef !important; }
           section[data-testid="stSidebar"] {
             background: linear-gradient(180deg, #fff9f0 0%, #efe5d6 100%);
           }
@@ -66,6 +73,11 @@ def apply_style() -> None:
             color: #4b6078;
             margin-top: -0.25rem;
           }
+          .map-note {
+            font-size: 0.98rem;
+            color: #4b6078;
+            margin: 0.45rem 0 0 0;
+          }
           div.stButton > button[kind="primary"] {
             width: 100%;
             min-height: 78px;
@@ -81,6 +93,12 @@ def apply_style() -> None:
             background: linear-gradient(135deg, #d8cabd 0%, #cfc2b6 100%);
             color: #8d837a;
             box-shadow: none;
+          }
+          @media (max-width: 900px) {
+            div.stButton > button[kind="primary"] {
+              min-height: 72px;
+              font-size: 1.14rem;
+            }
           }
         </style>
         """,
@@ -194,7 +212,7 @@ def build_map(sector_cells: pd.DataFrame, local_best: pd.Series, bounds: list[li
     m = folium.Map(
         location=[local_best["lat"], local_best["lon"]],
         zoom_start=13,
-        tiles="CartoDB Voyager",
+        tiles="OpenStreetMap",
         control_scale=True,
         prefer_canvas=True,
         max_zoom=18,
@@ -232,8 +250,8 @@ def build_map(sector_cells: pd.DataFrame, local_best: pd.Series, bounds: list[li
                 """
                 <div style="min-width:220px">
                   <div style="font-weight:700; color:#0f2747; margin-bottom:8px;">Точка выбрана</div>
-                  <div style="background:#ff8c42;color:white;border-radius:12px;padding:10px 12px;font-weight:800;text-align:center;">
-                    Зафиксировать и показать результат
+                  <div style="background:#fff3e8;color:#0f2747;border-radius:12px;padding:10px 12px;font-weight:700;text-align:center;border:1px solid rgba(15,39,71,0.1);">
+                    Нажмите большую кнопку под картой
                   </div>
                 </div>
                 """,
@@ -251,8 +269,8 @@ def build_map(sector_cells: pd.DataFrame, local_best: pd.Series, bounds: list[li
             fill_opacity=fill_opacity,
             tooltip=(
                 f"H3: {row.h3_index}<br>"
-                f"Objective score: {row.objective_score:.3f}<br>"
-                f"ATM type: {row.recommended_atm_type}"
+                f"Оценка сценария: {row.objective_score:.3f}<br>"
+                f"Тип ATM: {row.recommended_atm_type}"
             ),
             popup=popup,
         ).add_to(m)
@@ -264,7 +282,7 @@ def build_result_map(guessed: pd.Series, local_best: pd.Series, bounds: list[lis
     m = folium.Map(
         location=[local_best["lat"], local_best["lon"]],
         zoom_start=13,
-        tiles="CartoDB Voyager",
+        tiles="OpenStreetMap",
         control_scale=True,
         prefer_canvas=True,
         max_zoom=18,
@@ -315,16 +333,19 @@ def render_result_panel(scenario: str, local_best: pd.Series, bounds: list[list[
 
     st.markdown("<div class='status-card'>", unsafe_allow_html=True)
     st.subheader("Панель игрока")
-    st.markdown("<div class='cta-note'>Выберите точку на карте и запустите сравнение одной большой кнопкой.</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='cta-note'>Карта и все сообщения раунда собраны на одном экране: выбор точки, фиксация и итоговое сравнение с моделью.</div>",
+        unsafe_allow_html=True,
+    )
 
     if pending is None and locked is None:
         st.info("Кликните по одной из точек на карте слева.")
     elif pending is not None and locked is None:
-        st.success(f"Вы выбрали H3 `{pending['h3_index']}`.")
-        st.write(
-            f"Кандидатная точка: `{pending['recommended_atm_type']}` | "
-            f"profit `{float(pending['profit_core_score']):.3f}` | coverage `{float(pending['coverage_core_score']):.3f}`"
-        )
+        selection_cols = st.columns(3)
+        selection_cols[0].metric("Выбранная ячейка", str(pending["h3_index"]))
+        selection_cols[1].metric("Тип ATM", str(pending["recommended_atm_type"]))
+        selection_cols[2].metric("Локальная оценка", f"{objective_for_row(pd.Series(pending), scenario):.3f}")
+        st.success("Точка готова к фиксации. Нажмите большую кнопку сразу под картой.")
     else:
         guessed = pd.Series(locked)
         user_score = objective_for_row(guessed, scenario)
@@ -332,9 +353,11 @@ def render_result_panel(scenario: str, local_best: pd.Series, bounds: list[list[
         pct = 100.0 * user_score / best_score if best_score > 0 else 0.0
         delta = best_score - user_score
 
-        metric_cols = st.columns(2)
-        metric_cols[0].metric("Player Score", f"{pct:.1f}/100")
-        metric_cols[1].metric("Разница с моделью", f"{delta:.3f}")
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Оценка игрока", f"{pct:.1f}/100")
+        metric_cols[1].metric("Отставание", f"{delta:.3f}")
+        metric_cols[2].metric("Ваш ATM тип", str(guessed["recommended_atm_type"]))
+        metric_cols[3].metric("ATM модели", str(local_best["recommended_atm_type"]))
 
         if pct >= 92:
             st.success("Очень сильный выбор: вы почти попали в решение модели.")
@@ -343,27 +366,30 @@ def render_result_panel(scenario: str, local_best: pd.Series, bounds: list[list[
         else:
             st.error("Разрыв заметный: модель использует более сильную комбинацию факторов.")
 
-        st.markdown(
-            f"""
-            **Ваш выбор:** `{guessed['h3_index']}`  
-            Тип ATM: `{guessed['recommended_atm_type']}`  
-            Profit score: `{float(guessed['profit_core_score']):.3f}`  
-            Coverage score: `{float(guessed['coverage_core_score']):.3f}`  
-            Social score: `{float(guessed['social_core_score']):.3f}`
-            """
-        )
-        st.markdown(
-            f"""
-            **Оптимум модели:** `{local_best['h3_index']}`  
-            Тип ATM: `{local_best['recommended_atm_type']}`  
-            Profit score: `{float(local_best['profit_core_score']):.3f}`  
-            Coverage score: `{float(local_best['coverage_core_score']):.3f}`  
-            Social score: `{float(local_best['social_core_score']):.3f}`
-            """
-        )
-        st.markdown("### Карта сравнения")
-        result_map = build_result_map(guessed, local_best, bounds)
-        st_folium(result_map, width=None, height=320, returned_objects=[], key="game_result_map")
+        detail_cols = st.columns([1.05, 1.25], gap="large")
+        with detail_cols[0]:
+            st.markdown(
+                f"""
+                **Ваш выбор:** `{guessed['h3_index']}`  
+                Тип ATM: `{guessed['recommended_atm_type']}`  
+                Оценка прибыли: `{float(guessed['profit_core_score']):.3f}`  
+                Оценка покрытия: `{float(guessed['coverage_core_score']):.3f}`  
+                Социальная оценка: `{float(guessed['social_core_score']):.3f}`
+                """
+            )
+            st.markdown(
+                f"""
+                **Оптимум модели:** `{local_best['h3_index']}`  
+                Тип ATM: `{local_best['recommended_atm_type']}`  
+                Оценка прибыли: `{float(local_best['profit_core_score']):.3f}`  
+                Оценка покрытия: `{float(local_best['coverage_core_score']):.3f}`  
+                Социальная оценка: `{float(local_best['social_core_score']):.3f}`
+                """
+            )
+        with detail_cols[1]:
+            st.markdown("### Карта сравнения")
+            result_map = build_result_map(guessed, local_best, bounds)
+            st_folium(result_map, width=None, height=280, returned_objects=[], key="game_result_map")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -415,7 +441,7 @@ layout_left, layout_right = st.columns([2.7, 1.25], gap="large")
 
 with layout_left:
     game_map = build_map(sector_cells, local_best, bounds)
-    result = st_folium(game_map, width=None, height=760, returned_objects=["last_clicked"], key="game_main_map")
+    result = st_folium(game_map, width=None, height=460, returned_objects=["last_clicked"], key="game_main_map")
     if result and result.get("last_clicked"):
         clicked = result["last_clicked"]
         pending = nearest_cell(clicked["lat"], clicked["lng"], sector_cells)
@@ -425,6 +451,10 @@ with layout_left:
             st.session_state["pending_guess"] = pending.to_dict()
             st.session_state["locked_guess"] = None
             st.rerun()
+    st.markdown(
+        "<div class='map-note'>После клика по точке большая кнопка фиксации появляется сразу под картой.</div>",
+        unsafe_allow_html=True,
+    )
 
 with layout_right:
     st.markdown(
@@ -436,18 +466,18 @@ with layout_right:
         """,
         unsafe_allow_html=True,
     )
-    pending_exists = st.session_state.get("pending_guess") is not None
-    if st.button(
-        "Зафиксировать и показать результат",
-        type="primary",
-        use_container_width=True,
-        disabled=not pending_exists,
-    ):
-        st.session_state["locked_guess"] = st.session_state.get("pending_guess")
-        st.rerun()
-
     if st.button("Новый случайный сектор", use_container_width=True):
         initialize_or_refresh_sector(scenario, sector_radius_km, force_new=True)
         st.rerun()
 
-    render_result_panel(scenario, local_best, bounds)
+pending_exists = st.session_state.get("pending_guess") is not None
+if st.button(
+    "Зафиксировать и показать результат",
+    type="primary",
+    use_container_width=True,
+    disabled=not pending_exists,
+):
+    st.session_state["locked_guess"] = st.session_state.get("pending_guess")
+    st.rerun()
+
+render_result_panel(scenario, local_best, bounds)
